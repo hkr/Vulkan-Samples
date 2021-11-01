@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 
+#define USE_SRGB_SWAPCHAIN 1
+#define USE_MUTABLE_FORMAT 0
+
 #include "hello_triangle.h"
 
 #include "common/logging.h"
@@ -450,9 +453,13 @@ void HelloTriangle::init_swapchain(Context &context)
 		{
 			switch (candidate.format)
 			{
+#if !USE_SRGB_SWAPCHAIN
 				case VK_FORMAT_R8G8B8A8_UNORM:
 				case VK_FORMAT_B8G8R8A8_UNORM:
-				case VK_FORMAT_A8B8G8R8_UNORM_PACK32:
+#else
+				case VK_FORMAT_R8G8B8A8_SRGB:
+				case VK_FORMAT_B8G8R8A8_SRGB:
+#endif
 					format = candidate;
 					break;
 
@@ -528,6 +535,8 @@ void HelloTriangle::init_swapchain(Context &context)
 		composite = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
 	}
 
+	VkFormat                    formatList[2];
+	VkImageFormatListCreateInfo imageFormatListInfo{VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO, nullptr, 2, formatList};
 	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface            = context.surface;
 	info.minImageCount      = desired_swapchain_images;
@@ -543,6 +552,22 @@ void HelloTriangle::init_swapchain(Context &context)
 	info.presentMode        = swapchain_present_mode;
 	info.clipped            = true;
 	info.oldSwapchain       = old_swapchain;
+#if USE_MUTABLE_FORMAT && USE_SRGB_SWAPCHAIN
+	if (info.imageFormat == VK_FORMAT_B8G8R8A8_SRGB)
+	{
+		info.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+		formatList[0]    = VK_FORMAT_B8G8R8A8_SRGB;
+		formatList[1]    = VK_FORMAT_B8G8R8A8_UNORM;
+		info.pNext       = &imageFormatListInfo;
+	}
+	else if (info.imageFormat == VK_FORMAT_R8G8B8A8_SRGB)
+	{
+		info.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+		formatList[0]    = VK_FORMAT_R8G8B8A8_SRGB;
+		formatList[1]    = VK_FORMAT_R8G8B8A8_UNORM;
+		info.pNext       = &imageFormatListInfo;
+	}
+#endif
 
 	VK_CHECK(vkCreateSwapchainKHR(context.device, &info, nullptr, &context.swapchain));
 
@@ -879,7 +904,7 @@ void HelloTriangle::render_triangle(Context &context, uint32_t swapchain_index)
 
 	// Set clear color values.
 	VkClearValue clear_value;
-	clear_value.color = {{0.1f, 0.1f, 0.2f, 1.0f}};
+	clear_value.color = {{0.25f, 0.25f, 0.25f, 1.0f}};
 
 	// Begin the render pass.
 	VkRenderPassBeginInfo rp_begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -910,7 +935,7 @@ void HelloTriangle::render_triangle(Context &context, uint32_t swapchain_index)
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 	// Draw three vertices with one instance.
-	vkCmdDraw(cmd, 3, 1, 0, 0);
+	//vkCmdDraw(cmd, 3, 1, 0, 0);
 
 	// Complete render pass.
 	vkCmdEndRenderPass(cmd);
@@ -1092,7 +1117,11 @@ bool HelloTriangle::prepare(vkb::Platform &platform)
 	context.swapchain_dimensions.width  = extent.width;
 	context.swapchain_dimensions.height = extent.height;
 
-	init_device(context, {"VK_KHR_swapchain"});
+	init_device(context, {"VK_KHR_swapchain"
+		#if USE_MUTABLE_FORMAT
+		    , "VK_KHR_swapchain_mutable_format", "VK_KHR_image_format_list"
+		#endif
+		});
 
 	init_swapchain(context);
 
